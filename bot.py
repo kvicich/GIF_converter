@@ -80,10 +80,9 @@ def handle_video(message):
     bot.delete_message(chat_id, processing_message.message_id)
 
 @bot.message_handler(content_types=['document'])
-def handle_gif(message):
-    if message.document.mime_type == 'image/gif':
-        bot.reply_to(message, "Этот файл уже является GIF, конвертация не требуется.")
-        logger.info("Получен GIF файл, конвертация не требуется.")
+def handle_file(message):
+    bot.reply_to(message, "Этот файл уже является GIF или не поддерживается ботом.")
+    logger.info("Получен файл не требует конвертации.")
 
 if __name__ == '__main__':
     logger.info("Бот запускается...")
