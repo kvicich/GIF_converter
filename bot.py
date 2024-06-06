@@ -1,6 +1,5 @@
-import asyncio
-from telebot.async_telebot import AsyncTeleBot
 import logging
+from telebot import TeleBot
 from moviepy.editor import VideoFileClip
 import os
 
@@ -9,70 +8,84 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 with open('TOKEN.txt') as file:
-    TOKEN = file.read()
+    TOKEN = file.read().strip()
     logger.info("Прочитан токен")
 
-bot = AsyncTeleBot(TOKEN)
-logger.info("Создан обьект бота")
+bot = TeleBot(TOKEN)
+logger.info("Создан объект бота")
 
 # Хэндл '/start'
 @bot.message_handler(commands=['start'])
-async def send_welcome(message):
-    text = 'Привет! Это бот для конвертации видео в гифки, написан на telebot.\nЧто-бы начать использовать бот отправьте видео для конвертации'
-    await bot.reply_to(message, text)
+def send_welcome(message):
+    text = 'Привет! Это бот для конвертации видео в гифки, написан на telebot.\nЧтобы начать использовать бот, отправьте видео для конвертации'
+    bot.reply_to(message, text)
     logger.info("Использована команда /start")
 
-async def convert_video_to_gif(input_video_path, output_gif_path):
+def convert_video_to_gif(input_video_path, output_gif_path):
     logger.info("Начинается конвертация")
     # Загружаем видеофайл
     clip = VideoFileClip(input_video_path)
 
     # Ограничиваем длительность GIF (например, 10 секунд)
     if clip.duration > 10:
-        clip = clip.subclip(0, 10)
+        clip = clip.subclip(0, 15)
 
-    # Устанавливаем параметры GIF (опционально)
-    clip = clip.set_fps(30)
+    # Устанавливаем параметры GIF (уменьшаем разрешение и частоту кадров)
+    clip = clip.resize(height=360)  # Изменить разрешение (высота)
+    clip = clip.set_fps(15)  # Уменьшить частоту кадров
 
-    # Конвертируем видео в GIF
-    clip.write_gif(output_gif_path, program='ffmpeg')
-
-    # Закрываем клип
+    # Конвертируем видео в GIF с оптимизацией
+    clip.write_gif(output_gif_path, program='ffmpeg', opt='nq', fuzz=2)
     clip.close()
     logger.info("Конвертация закончена")
 
 @bot.message_handler(content_types=['video'])
-async def handle_video(message):
+def handle_video(message):
     logger.info("Начинаем обработку...")
+    chat_id = message.chat.id
+    
+    # Уведомление пользователя о принятии видео
+    processing_message = bot.send_message(chat_id, "Ваше видео принято на обработку. Пожалуйста, подождите...")
+    
     # Скачиваем видео
-    file_info = await bot.get_file(message.video.file_id)
-    downloaded_file = await bot.download_file(file_info.file_path)
+    file_info = bot.get_file(message.video.file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
     logger.info("Видео скачано")
-    input_video_path = "input_video.mp4"
-    output_gif_path = "output.gif"
+    input_video_path = f"{chat_id}_input_video.mp4"
+    output_gif_path = f"{chat_id}_output.gif"
 
     with open(input_video_path, 'wb') as new_file:
         new_file.write(downloaded_file)
     
     # Конвертируем видео в GIF
-    await convert_video_to_gif(input_video_path, output_gif_path)
+    convert_video_to_gif(input_video_path, output_gif_path)
     logger.info("Видео конвертировано")
     
-    # Отправляем GIF обратно пользователю
-    with open(output_gif_path, 'rb') as gif_file:
-        await bot.send_document(message.chat.id, gif_file)
-    logger.info("Гиф отправлена юзеру")
+    # Проверяем размер файла перед отправкой
+    if os.path.getsize(output_gif_path) > 10 * 1024 * 1024:  # 10 MB
+        bot.send_message(chat_id, "Ошибка при отправке гиф")
+        logger.info("Гиф слишком большая для отправки")
+    else:
+        # Отправляем GIF обратно пользователю
+        with open(output_gif_path, 'rb') as gif_file:
+            bot.send_document(chat_id, gif_file)
+        logger.info("Гиф отправлена юзеру")
     
     # Удаляем временные файлы
     os.remove(input_video_path)
     os.remove(output_gif_path)
     logger.info("Обработка закончена.")
+    
+    # Удаляем сообщение о принятии на обработку
+    bot.delete_message(chat_id, processing_message.message_id)
 
-async def main():
-    await bot.polling()
+@bot.message_handler(content_types=['document'])
+def handle_gif(message):
+    if message.document.mime_type == 'image/gif':
+        bot.reply_to(message, "Этот файл уже является GIF, конвертация не требуется.")
+        logger.info("Получен GIF файл, конвертация не требуется.")
 
-# Запуск основного цикла событий
 if __name__ == '__main__':
     logger.info("Бот запускается...")
-    asyncio.run(main())
+    bot.polling(none_stop=True, interval=0, timeout=20)
     logger.info("Бот остановлен")
