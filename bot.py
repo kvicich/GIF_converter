@@ -73,7 +73,6 @@ def handle_video(message):
     
     # Удаляем временные файлы
     os.remove(input_video_path)
-    os.remove(output_gif_path)
     logger.info("Обработка закончена.")
     
     # Удаляем сообщение о принятии на обработку
